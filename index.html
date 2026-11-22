@@ -442,6 +442,50 @@
             padding: 0.3rem 0.45rem;
         }
 
+        .daily-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            margin-top: 1.25rem;
+            padding: 0.9rem 1rem;
+            background: var(--screen);
+            border: 4px solid var(--ink);
+            box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.8);
+        }
+
+        .daily-summary {
+            font-family: 'Press Start 2P', monospace;
+            font-size: 0.7rem;
+            line-height: 1.8;
+            color: var(--cream);
+            text-shadow: 2px 2px 0 #000;
+        }
+
+        .daily-summary .pct {
+            color: var(--m-yellow);
+        }
+
+        .graph-panel {
+            display: none;
+            margin-top: 1.25rem;
+            padding: 1.25rem 1.5rem;
+            background: var(--screen);
+            border: 4px solid var(--ink);
+            box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.8);
+        }
+
+        .graph-panel.visible {
+            display: block;
+            animation: pop 0.15s steps(2);
+        }
+
+        .graph-panel svg {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
         @media (max-width: 640px) {
             h1 { font-size: 1.25rem; }
             .logo-m { width: 72px; height: 72px; }
@@ -508,11 +552,24 @@
 
         <div class="stats" id="stats"></div>
 
+        <div class="daily-row">
+            <div id="daily-summary" class="daily-summary"></div>
+            <button id="toggle-graph" class="btn-refresh" onclick="toggleGraph()">📈 GRAF</button>
+        </div>
+
+        <div id="graph-panel" class="graph-panel">
+            <div class="solution-title">% RIGTIGE PR. DAG — SIDSTE 14 DAGE</div>
+            <div id="graph"></div>
+        </div>
+
         <p class="hint"><kbd>ENTER</kbd> TJEK SVAR &nbsp;&nbsp; <kbd>R</kbd> NY OPGAVE</p>
     </div>
 
     <script>
         const PI = 3.14;
+
+        const DAILY_KEY = 'mathaid_daily_v1';
+        const GRAPH_DAYS = 14;
 
         let activeModule = 'tal';
 
@@ -617,6 +674,7 @@
 
         document.addEventListener('DOMContentLoaded', () => {
             renderStats();
+            renderDailySummary();
             generateProblem();
         });
 
@@ -1264,8 +1322,10 @@
                 input.disabled = true;
                 stats[activeModule].total++;
                 stats[activeModule][currentProblem.type]++;
+                recordAttempt(true);
                 renderStats();
             } else {
+                recordAttempt(false);
                 showFeedback(false, '❌ Forkert — prøv igen!');
             }
         }
@@ -1288,6 +1348,106 @@
                 item.appendChild(lab);
                 bar.appendChild(item);
             });
+        }
+
+        function todayKey(d = new Date()) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        }
+
+        function loadDaily() {
+            try {
+                const raw = localStorage.getItem(DAILY_KEY);
+                const data = raw ? JSON.parse(raw) : {};
+                return (data && typeof data === 'object') ? data : {};
+            } catch (e) {
+                return {};
+            }
+        }
+
+        function saveDaily(data) {
+            try {
+                localStorage.setItem(DAILY_KEY, JSON.stringify(data));
+            } catch (e) {}
+        }
+
+        function recordAttempt(ok) {
+            const data = loadDaily();
+            const key = todayKey();
+            if (!data[key]) data[key] = { correct: 0, total: 0 };
+            data[key].total++;
+            if (ok) data[key].correct++;
+            saveDaily(data);
+            renderDailySummary();
+            if (document.getElementById('graph-panel').classList.contains('visible')) renderGraph();
+        }
+
+        function dailyPct(entry) {
+            if (!entry || !entry.total) return null;
+            return Math.round((entry.correct / entry.total) * 100);
+        }
+
+        function renderDailySummary() {
+            const data = loadDaily();
+            const t = data[todayKey()] || { correct: 0, total: 0 };
+            const pct = t.total ? Math.round((t.correct / t.total) * 100) : null;
+            document.getElementById('daily-summary').innerHTML =
+                `I DAG: <span class="pct">${t.correct}/${t.total}</span> RIGTIGE → <span class="pct">${pct === null ? '—' : pct + '%'}</span>`;
+        }
+
+        function toggleGraph() {
+            const panel = document.getElementById('graph-panel');
+            const btn = document.getElementById('toggle-graph');
+            if (panel.classList.contains('visible')) {
+                panel.classList.remove('visible');
+                btn.textContent = '📈 GRAF';
+            } else {
+                renderGraph();
+                panel.classList.add('visible');
+                btn.textContent = '📉 SKJUL GRAF';
+            }
+        }
+
+        function renderGraph() {
+            const data = loadDaily();
+            const days = [];
+            for (let i = GRAPH_DAYS - 1; i >= 0; i--) {
+                const d = new Date();
+                d.setDate(d.getDate() - i);
+                const key = todayKey(d);
+                days.push({
+                    key: key,
+                    label: `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`,
+                    pct: dailyPct(data[key])
+                });
+            }
+            const W = 620, H = 200, padL = 36, padR = 8, padT = 22, padB = 24;
+            const plotW = W - padL - padR, plotH = H - padT - padB;
+            const slot = plotW / days.length;
+            const barW = Math.max(6, slot * 0.6);
+            let parts = '';
+            [0, 25, 50, 75, 100].forEach(p => {
+                const y = padT + plotH - (p / 100) * plotH;
+                parts += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="rgba(255,250,235,0.18)" stroke-width="1"${p === 0 ? '' : ' stroke-dasharray="4 4"'}/>`;
+                parts += `<text x="${padL - 6}" y="${y + 4}" text-anchor="end" font-size="10" fill="rgba(255,250,235,0.7)" font-family="VT323, monospace">${p}%</text>`;
+            });
+            days.forEach((d, i) => {
+                const cx = padL + slot * i + slot / 2;
+                if (d.pct !== null) {
+                    const bh = Math.max((d.pct / 100) * plotH, 2);
+                    const y = padT + plotH - bh;
+                    const color = d.pct >= 80 ? '#FFD800' : d.pct >= 50 ? '#FFAF00' : d.pct >= 25 ? '#FF8205' : '#E10500';
+                    parts += `<rect x="${cx - barW / 2}" y="${y}" width="${barW}" height="${bh}" fill="${color}" stroke="#0B0714" stroke-width="2" shape-rendering="crispEdges"/>`;
+                    parts += `<text x="${cx}" y="${y - 5}" text-anchor="middle" font-size="10" fill="#FFFAEB" font-family="Press Start 2P, monospace">${d.pct}</text>`;
+                } else {
+                    parts += `<rect x="${cx - barW / 2}" y="${padT + plotH - 2}" width="${barW}" height="2" fill="rgba(255,250,235,0.25)" shape-rendering="crispEdges"/>`;
+                }
+                parts += `<text x="${cx}" y="${H - 8}" text-anchor="middle" font-size="10" fill="rgba(255,250,235,0.7)" font-family="VT323, monospace">${d.label}</text>`;
+            });
+            document.getElementById('graph').innerHTML =
+                `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${parts}</svg>`;
         }
 
         document.addEventListener('keydown', (e) => {

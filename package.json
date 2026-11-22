@@ -1,0 +1,16 @@
+{
+  "name": "math-aid",
+  "version": "1.0.0",
+  "description": "Math Aid pixel edition: Capacitor Android wrapper around the root index.html",
+  "scripts": {
+    "sync:www": "./tools/sync-www.sh",
+    "sync": "npx cap sync android",
+    "build:android": "npm run sync:www && npx cap sync android && cd android && ./gradlew assembleDebug"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/cli": "^8.6.2",
+    "@capacitor/core": "^8.6.2"
+  }
+}
